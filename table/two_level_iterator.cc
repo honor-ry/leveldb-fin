@@ -19,6 +19,7 @@ class TwoLevelIterator : public Iterator {
  public:
   TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,
                    void* arg, const ReadOptions& options);
+  TwoLevelIterator(Iterator* index_iter);
 
   ~TwoLevelIterator() override;
 
@@ -56,6 +57,11 @@ class TwoLevelIterator : public Iterator {
   void SkipEmptyDataBlocksBackward();
   void SetDataIterator(Iterator* data_iter);
   void InitDataBlock();
+  void InitDataTable();
+
+  //is memtable or fileblock
+  bool is_mem_;
+
 
   BlockFunction block_function_;
   void* arg_;
@@ -66,6 +72,8 @@ class TwoLevelIterator : public Iterator {
   // If data_iter_ is non-null, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the data_iter_.
   std::string data_block_handle_;
+  MemTable* mem_handle_;
+
 };
 
 TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
@@ -75,27 +83,48 @@ TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
       arg_(arg),
       options_(options),
       index_iter_(index_iter),
-      data_iter_(nullptr) {}
+      data_iter_(nullptr),
+      is_mem_(false),
+      mem_handle_(nullptr){}
+
+TwoLevelIterator::TwoLevelIterator(Iterator* index_iter)
+    : block_function_(nullptr),
+      index_iter_(index_iter),
+      data_iter_(nullptr),
+      is_mem_(true),
+      mem_handle_(nullptr){}
 
 TwoLevelIterator::~TwoLevelIterator() = default;
 
 void TwoLevelIterator::Seek(const Slice& target) {
   index_iter_.Seek(target);
-  InitDataBlock();
+    if(is_mem_){
+    InitDataTable();
+  }else{
+      InitDataBlock();
+  }
   if (data_iter_.iter() != nullptr) data_iter_.Seek(target);
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekToFirst() {
   index_iter_.SeekToFirst();
-  InitDataBlock();
+  if(is_mem_){
+    InitDataTable();
+  }else{
+      InitDataBlock();
+  }
   if (data_iter_.iter() != nullptr) data_iter_.SeekToFirst();
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekToLast() {
   index_iter_.SeekToLast();
-  InitDataBlock();
+  if(is_mem_){
+    InitDataTable();
+  }else{
+      InitDataBlock();
+  }
   if (data_iter_.iter() != nullptr) data_iter_.SeekToLast();
   SkipEmptyDataBlocksBackward();
 }
@@ -120,7 +149,12 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
       return;
     }
     index_iter_.Next();
-    InitDataBlock();
+    if(is_mem_){
+      InitDataTable();
+    }else{
+      InitDataBlock();
+    }
+
     if (data_iter_.iter() != nullptr) data_iter_.SeekToFirst();
   }
 }
@@ -133,7 +167,11 @@ void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
       return;
     }
     index_iter_.Prev();
-    InitDataBlock();
+    if(is_mem_){
+      InitDataTable();
+    }else{
+        InitDataBlock();
+    }
     if (data_iter_.iter() != nullptr) data_iter_.SeekToLast();
   }
 }
@@ -159,6 +197,26 @@ void TwoLevelIterator::InitDataBlock() {
     }
   }
 }
+//init memtable iter
+void TwoLevelIterator::InitDataTable() {
+  if (!index_iter_.Valid()) {
+    SetDataIterator(nullptr);
+  } else {
+    Slice handle = index_iter_.value();//memtable pointer
+    char* c=const_cast<char*>(handle.data());
+    MemTable* table=reinterpret_cast<MemTable*>(c);
+    
+    if (data_iter_.iter() != nullptr &&
+        table==mem_handle_) {
+        
+    } else {
+      mem_handle_=table;
+      SetDataIterator(table->NewIterator());
+    }
+  }
+}
+
+
 
 }  // namespace
 
@@ -166,6 +224,9 @@ Iterator* NewTwoLevelIterator(Iterator* index_iter,
                               BlockFunction block_function, void* arg,
                               const ReadOptions& options) {
   return new TwoLevelIterator(index_iter, block_function, arg, options);
+}
+Iterator* NewMemTwoLevelIterator(Iterator* index_iter) {
+  return new TwoLevelIterator(index_iter);
 }
 
 }  // namespace leveldb

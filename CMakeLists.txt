@@ -148,6 +148,10 @@ target_sources(leveldb
     "db/version_edit.h"
     "db/version_set.cc"
     "db/version_set.h"
+    "db/mem_version_edit.cc"
+    "db/mem_version_edit.h"
+    "db/mem_version_set.cc"
+    "db/mem_version_set.h"
     "db/write_batch_internal.h"
     "db/write_batch.cc"
     "port/port_stdcxx.h"
@@ -189,6 +193,7 @@ target_sources(leveldb
     "util/options.cc"
     "util/random.h"
     "util/status.cc"
+    "dataloader/dataloader.h"
 
   # Only CMake 3.3+ supports PUBLIC sources in targets exported by "install".
   $<$<VERSION_GREATER:CMAKE_VERSION,3.2>:PUBLIC>
@@ -345,7 +350,7 @@ if(LEVELDB_BUILD_TESTS)
   leveldb_test("issues/issue200_test.cc")
   leveldb_test("issues/issue320_test.cc")
 
-  leveldb_test("util/env_test.cc")
+  # leveldb_test("util/env_test.cc")
   leveldb_test("util/status_test.cc")
   leveldb_test("util/no_destructor_test.cc")
 
@@ -357,7 +362,7 @@ if(LEVELDB_BUILD_TESTS)
     leveldb_test("db/filename_test.cc")
     leveldb_test("db/log_test.cc")
     leveldb_test("db/recovery_test.cc")
-    leveldb_test("db/skiplist_test.cc")
+   # leveldb_test("db/skiplist_test.cc")
     leveldb_test("db/version_edit_test.cc")
     leveldb_test("db/version_set_test.cc")
     leveldb_test("db/write_batch_test.cc")
@@ -415,6 +420,7 @@ if(LEVELDB_BUILD_BENCHMARKS)
 
   if(NOT BUILD_SHARED_LIBS)
     leveldb_benchmark("benchmarks/db_bench.cc")
+    leveldb_benchmark("benchmarks/ycsb_bench.cc")
   endif(NOT BUILD_SHARED_LIBS)
 
   check_library_exists(sqlite3 sqlite3_open "" HAVE_SQLITE3)

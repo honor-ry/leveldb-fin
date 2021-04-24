@@ -43,7 +43,9 @@ static double MaxBytesForLevel(const Options* options, int level) {
   // the level-0 compaction threshold based on number of files.
 
   // Result for both level-0 and level-1
-  double result = 10. * 1048576.0;
+  //double result = 4096 * 1048576.0;//4GB
+  //double result = std::min((options->write_buffer_size * 5.0 / 2),(1024 * 1024 * 1024.0));
+  double result =  256 * 1024 * 1024 ;//DEFAULT
   while (level > 1) {
     result *= 10;
     level--;
@@ -124,7 +126,7 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                            const Slice* smallest_user_key,
                            const Slice* largest_user_key) {
   const Comparator* ucmp = icmp.user_comparator();
-  if (!disjoint_sorted_files) {
+  if (!disjoint_sorted_files) {//level = 0遍历level0的全部sst
     // Need to check against all files
     for (size_t i = 0; i < files.size(); i++) {
       const FileMetaData* f = files[i];
@@ -467,6 +469,16 @@ bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
                                smallest_user_key, largest_user_key);
 }
 
+
+//add code  for pick L0
+bool Version::OverlapInLevel2(int level, const Slice* smallest_user_key,
+                             const Slice* largest_user_key, int group,std::vector<std::vector<FileMetaData*> > logicalgroupL0 ) {
+  return SomeFileOverlapsRange(vset_->icmp_, (level > 0), logicalgroupL0[group],
+                               smallest_user_key, largest_user_key);
+}
+
+
+
 int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                         const Slice& largest_user_key) {
   int level = 0;
@@ -491,8 +503,64 @@ int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
       level++;
     }
   }
-  return level;
+ return level;  //如果sstable文件与L0有重叠，直接加入L0
 }
+
+int Version::PickGroupForMemTableOutput(const Slice& smallest_user_key,
+                                        const Slice& largest_user_key){
+  int group = 0 ;
+  //return group+1;
+  /* std::vector<FileMetaData*> logicalgroupL0[config::Kmaxgroup]; */
+  //Version* current_;
+  //遍历L0层的filemetadata，得到logiclagroupl0;
+  //printf("L0ceng的个数： %d \n",files_[0].size());
+   if(files_[0].empty()) return group;
+  int max_group_number = Max_Group();//获取最大group数
+  /*
+  if(!files_[0].empty()) max_group_number =  files_[0][0]->group_number;
+  else max_group_number=0;
+  for(int i=1;i<files_[0].size();i++){
+      if(files_[0][i]->group_number > max_group_number)
+      max_group_number = files_[0][i]->group_number ; 
+  }
+  */
+
+ //- printf("-------flush ------\n");
+ //- printf("L0 max group number: %d\n",max_group_number);
+  //return group; 
+   std::vector<std::vector<FileMetaData*> >  logicalgroupL0(max_group_number+1,std::vector<FileMetaData*>()); 
+  if((!files_->empty())&&(!files_[0].empty()) ){
+    for (size_t i = 0; i < files_[0].size(); i++) {
+    FileMetaData* f =files_[0][i];
+    // if(f->group_number<=9&&f->group_number>=0)
+    logicalgroupL0[files_[0][i]->group_number].push_back(files_[0][i]);
+     
+  }
+  }
+  ///--
+  /*
+    for(int i=0;i<=max_group_number;i++){
+      if(OverlapInLevel2(0, &smallest_user_key, &largest_user_key,i,logicalgroupL0) )//有重叠
+        continue;  
+      else if(!OverlapInLevel2(0, &smallest_user_key, &largest_user_key,i,logicalgroupL0)&& logicalgroupL0[i].size()!=0){
+        group = i;
+        return group;
+      }
+  }  
+  */
+   for(int i = 0; i <= max_group_number; i++){
+     if(!OverlapInLevel2(0, &smallest_user_key, &largest_user_key,i,logicalgroupL0)){
+       group = i; 
+       //-printf("flush group number: %d\n",group);
+       return group;
+     }
+   }
+  
+  //-printf("flush group number,全部重叠: %d\n",max_group_number + 1);
+  //如果与每层都有重叠，则添加到最新的一层。 
+  return max_group_number + 1;
+}
+
 
 // Store in "*inputs" all files in "level" that overlap [begin,end]
 void Version::GetOverlappingInputs(int level, const InternalKey* begin,
@@ -775,6 +843,7 @@ void VersionSet::AppendVersion(Version* v) {
 }
 
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
+  /*
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= log_number_);
     assert(edit->log_number_ < next_file_number_);
@@ -787,6 +856,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   }
 
   edit->SetNextFile(next_file_number_);
+  */
   edit->SetLastSequence(last_sequence_);
 
   Version* v = new Version(this);
@@ -795,6 +865,37 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     builder.Apply(edit);
     builder.SaveTo(v);
   }
+
+
+  int max_group_number = v->Max_Group();
+  std::vector<std::vector<FileMetaData*> >  logicalgroupL0(max_group_number+1,std::vector<FileMetaData*>()); 
+  if((!v->files_->empty())&&(!v->files_[0].empty()) ){
+    for (size_t i = 0; i < v->files_[0].size(); i++) {
+    FileMetaData* f =v->files_[0][i];
+    logicalgroupL0[v->files_[0][i]->group_number].push_back(v->files_[0][i]);
+     
+  }
+  }
+  std::vector<int> no_empty_group;//存储非空的组数
+  for(int i = 0;i <= max_group_number; i++){
+      if(!logicalgroupL0[i].empty()){
+        no_empty_group.push_back(i);
+      }
+  }
+ 
+    for(size_t i = 0; i < v->files_[0].size(); i++){
+      for(int j=0;j < no_empty_group.size();j++){
+      
+      if(v->files_[0][i]->group_number == no_empty_group[j])
+          v->files_[0][i]->group_number = j;
+      }
+    }
+    /*
+    max_group_number = (no_empty_group.size() - 1) > 0 ? (no_empty_group.size() - 1) : 0;
+    v->SetMaxGroup(max_group_number);
+    */
+  
+
   Finalize(v);
 
   // Initialize new descriptor log file if necessary by creating
@@ -948,7 +1049,9 @@ Status VersionSet::Recover(bool* save_manifest) {
   delete file;
   file = nullptr;
 
+
   if (s.ok()) {
+/*
     if (!have_next_file) {
       s = Status::Corruption("no meta-nextfile entry in descriptor");
     } else if (!have_log_number) {
@@ -956,7 +1059,7 @@ Status VersionSet::Recover(bool* save_manifest) {
     } else if (!have_last_sequence) {
       s = Status::Corruption("no last-sequence-number entry in descriptor");
     }
-
+*/
     if (!have_prev_log_number) {
       prev_log_number = 0;
     }
@@ -1033,9 +1136,9 @@ void VersionSet::Finalize(Version* v) {
   // Precomputed best level for next compaction
   int best_level = -1;
   double best_score = -1;
-
+  double score0 = -1;
   for (int level = 0; level < config::kNumLevels - 1; level++) {
-    double score;
+    double score1;
     if (level == 0) {
       // We treat level-0 specially by bounding the number of files
       // instead of number of bytes for two reasons:
@@ -1048,23 +1151,35 @@ void VersionSet::Finalize(Version* v) {
       // file size is small (perhaps because of a small write-buffer
       // setting, or very high compression ratios, or lots of
       // overwrites/deletions).
-      score = v->files_[level].size() /
-              static_cast<double>(config::kL0_CompactionTrigger);
+
+      int max_group_number = v->Max_Group();
+      score0 = v->Max_Group() * 1.0 / (config::kL0_CompactionTrigger)  ;
+      
     } else {
       // Compute the ratio of current size to size limit.
       const uint64_t level_bytes = TotalFileSize(v->files_[level]);
-      score =
+      score1 =
           static_cast<double>(level_bytes) / MaxBytesForLevel(options_, level);
-    }
-
-    if (score > best_score) {
-      best_level = level;
-      best_score = score;
-    }
+      if (score1 > best_score) {
+        best_level = level;
+        best_score = score1;
+      }
   }
 
-  v->compaction_level_ = best_level;
-  v->compaction_score_ = best_score;
+}
+
+if(best_score < config::Priority_L0_Compaction){//如果level0大于1则选L0，如果L0不大于1则还是选原来score1的分数和层数
+   best_score = score0 >= 1 ? score0 : best_score;
+   best_level = score0 >= 1? 0 :best_level;
+  }
+  else {
+    best_score = score0 >= best_score ? score0 : best_score;
+    best_level = score0 >= best_score ? 0 : best_level;
+  }
+//-  printf("v->compaction_level_ = %f \n",best_level);
+//-  printf("v->compaction_score_ = %f \n",best_score);
+    v->compaction_level_= best_level;
+    v->compaction_score_ = best_score;
 }
 
 Status VersionSet::WriteSnapshot(log::Writer* log) {
@@ -1087,9 +1202,11 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   for (int level = 0; level < config::kNumLevels; level++) {
     const std::vector<FileMetaData*>& files = current_->files_[level];
     for (size_t i = 0; i < files.size(); i++) {
-      const FileMetaData* f = files[i];
-      edit.AddFile(level, f->number, f->file_size, f->smallest, f->largest);
-    }
+      FileMetaData* f = files[i];
+      if(level>0) f->group_number = 0;
+      edit.AddFile(level, f->group_number,f->number, f->file_size, f->smallest, f->largest);
+ 
+      }
   }
 
   std::string record;
@@ -1250,10 +1367,138 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   return result;
 }
 
+
+
+Compaction* VersionSet::PickCompactionlevel0(Compaction* c){
+    //Compaction* c;
+    int level=0;
+    int group=0;
+    int pos=0; //表明选择所在group的哪一个sst参与compaction
+    std::vector<FileMetaData*> pick_input ;
+    int max_group_number = 0 ;//获取最大group数,用来初始化logicalgroupl0.
+    //pick 哪一group的那个sst参与compaction  在L0层
+    
+//-------
+  /*
+   for(int i = 0;i < current_->files_[0].size();i++){
+      if(current_->files_[0][i]->group_number >= max_group_number)
+      max_group_number = current_->files_[0][i]->group_number ; 
+  } 
+  */
+
+  max_group_number = current_->Max_Group();
+
+ //- printf("--------pick compaction for L0------\n");
+ //- printf("current max-num is %d\n",max_group_number);
+   std::vector<std::vector<FileMetaData*> >  logicalgroupL0(max_group_number+1,std::vector<FileMetaData*>()); 
+  
+  for (size_t i = 0; i < current_->files_[0].size(); i++) {
+    FileMetaData* f = current_->files_[0][i];
+    logicalgroupL0[f->group_number].push_back(f);
+  }
+//-  printf("logical group size = %d\n",logicalgroupL0.size());
+
+  //printf("logicalgroup-first = %d\n",logicalgroupL0[0][0]->group_number);
+  int min_group_file = logicalgroupL0[0].size();
+    for(int i = 1;i <= max_group_number; i++) {   //获得所含sst最少的group
+      if(min_group_file > logicalgroupL0[i].size() && logicalgroupL0[i].size()!= 0)
+        {
+          min_group_file = logicalgroupL0[i].size();
+          group = i; 
+        }
+    }
+//-------
+  
+   if(max_group_number >= config::Kmaxgroup){
+      //pick_input.assign(logicalgroupL0[group].begin(),logicalgroupL0[group].end());
+      c->inputs_[0].assign(logicalgroupL0[group].begin(),logicalgroupL0[group].end());
+  } 
+  else { 
+
+      std::vector<FileMetaData*> input_overlap[2]; //计算overlap所用的input，  ratio
+    //遍历group中的每个sst文件，计算overlap ratio。
+    //int min_ratio=INT_MAX;
+    std::vector<double> group_ratio(logicalgroupL0[group].size(),-1);
+    for(int i = 0;i < logicalgroupL0[group].size(); i++){
+        FileMetaData* FILE = logicalgroupL0[group][i];
+        InternalKey smallest_L0, largest_L0; //保存L0层的各个group中有overlap的范围。
+        current_->GetOverlappingInputs(0, &FILE->smallest, &FILE->largest, &input_overlap[0]);
+       
+        GetRange(input_overlap[0], &smallest_L0, &largest_L0);
+        current_->GetOverlappingInputs(1, &smallest_L0, &largest_L0, &input_overlap[1]);
+        group_ratio[i] = input_overlap[1].size()/input_overlap[0].size() ; 
+        
+    }
+    
+ //-   printf("----------------\n");
+ //-   printf("min sstable logical group size = %d\n",logicalgroupL0[group].size());
+ //-   printf("-------打印group ratio的值---------\n");
+//打印group ratio的值
+ /*-  for(int i=0;i<group_ratio.size();i++){
+    printf("第%d个group_ratio为： %f\n",i,group_ratio[i]);
+  } */
+
+    for(int i = 1, min = group_ratio[0]; i < group_ratio.size();i++){
+      if(min > group_ratio[i]){
+        min = group_ratio[i];
+        pos = i;
+      }
+    }
+
+   //此时得到选择group中到底哪一个sst进行compact
+   FileMetaData* pick_files = logicalgroupL0[group][pos];
+    //得到参与compact的input_[1]和input_[2]
+  InternalKey pick_smallest_L0, pick_largest_L0;
+  //std::vector<FileMetaData*> pick_input[2];  //pick_input[0]保存选取的这个sst所对应的key的范围  pick_input[1]保存的是所有L0的文件中与这个范围 存在overlap的sst
+
+  pick_input.push_back(pick_files);
+  c->inputs_[0].push_back(logicalgroupL0[group][pos]);
+  //-printf("C-input[0] is %d \n",c->inputs_[0].size());
+  //-printf("pick group = %d,pos = %d\n",group,pos);
+ // printf("logical0 =%d",logicalgroupL0[0].size());
+  
+}
+//&& !pick_input.empty()
+//if(c->inputs_[0].empty()) c->inputs_[0].push_back(logicalgroupL0[0][0]);
+//if(pick_input.empty()) printf("pick_input is empty!\n");
+ /*  if(level==0 && max_group_number >= config::Kmaxgroup){
+    InternalKey smallest_, largest_;
+    //c->inputs_[0].assign(pick_input.begin(),pick_input.end());
+    GetRange(c->inputs_[0], &smallest_, &largest_);
+    current_->GetOverlappingInputs(1, &smallest_, &largest_, &c->inputs_[1]);
+    compact_pointer_[level] = largest_.Encode().ToString();
+    c->edit_.SetCompactPointer(level, largest_);
+    
+  }  */
+ 
+  if(level == 0) {
+    InternalKey smallest, largest;
+    //c->inputs_[0].assign(pick_input.begin(),pick_input.end());
+    GetRange(c->inputs_[0], &smallest, &largest);
+    // Note that the next call will discard the file we placed in
+    // c->inputs_[0] earlier and replace it with an overlapping set
+    // which will include the picked file.
+    current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
+    //GetRange(c->inputs_[0], &smallest, &largest);
+    current_->GetOverlappingInputs(1, &smallest, &largest, &c->inputs_[1]);
+    compact_pointer_[level] = largest.Encode().ToString();
+    c->edit_.SetCompactPointer(level, largest);
+    assert(!c->inputs_[0].empty());
+  }
+  //-printf("C-input[1] is %d \n",c->inputs_[1].size());
+  return c;  
+}
+
+
+
+
+
 Compaction* VersionSet::PickCompaction() {
   Compaction* c;
   int level;
 
+   int group;
+  std::vector<FileMetaData*> pick_input ;
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   const bool size_compaction = (current_->compaction_score_ >= 1);
@@ -1264,8 +1509,13 @@ Compaction* VersionSet::PickCompaction() {
     assert(level + 1 < config::kNumLevels);
     c = new Compaction(options_, level);
 
-    // Pick the first file that comes after compact_pointer_[level]
-    for (size_t i = 0; i < current_->files_[level].size(); i++) {
+
+    if(level == 0){
+      PickCompactionlevel0(c);
+    }
+    else {
+        // Pick the first file that comes after compact_pointer_[level]
+    for (size_t i = 0; i < current_->files_[level].size()&&level>=1; i++) {
       FileMetaData* f = current_->files_[level][i];
       if (compact_pointer_[level].empty() ||
           icmp_.Compare(f->largest.Encode(), compact_pointer_[level]) > 0) {
@@ -1273,11 +1523,14 @@ Compaction* VersionSet::PickCompaction() {
         break;
       }
     }
-    if (c->inputs_[0].empty()) {
+     if (c->inputs_[0].empty()) {
       // Wrap-around to the beginning of the key space
       c->inputs_[0].push_back(current_->files_[level][0]);
     }
-  } else if (seek_compaction) {
+
+    }
+  }
+   else if (seek_compaction) {  //seek触发的compaction
     level = current_->file_to_compact_level_;
     c = new Compaction(options_, level);
     c->inputs_[0].push_back(current_->file_to_compact_);
@@ -1288,21 +1541,12 @@ Compaction* VersionSet::PickCompaction() {
   c->input_version_ = current_;
   c->input_version_->Ref();
 
-  // Files in level 0 may overlap each other, so pick up all overlapping ones
-  if (level == 0) {
-    InternalKey smallest, largest;
-    GetRange(c->inputs_[0], &smallest, &largest);
-    // Note that the next call will discard the file we placed in
-    // c->inputs_[0] earlier and replace it with an overlapping set
-    // which will include the picked file.
-    current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
-    assert(!c->inputs_[0].empty());
-  }
-
-  SetupOtherInputs(c);
+  if(level >= 1) SetupOtherInputs(c);
 
   return c;
 }
+
+
 
 // Finds the largest key in a vector of files. Returns true if files it not
 // empty.

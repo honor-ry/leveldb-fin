@@ -45,25 +45,26 @@
 //      sstables    -- Print sstable info
 //      heapprofile -- Dump a heap profile (if supported by this port)
 static const char* FLAGS_benchmarks =
-    "fillseq,"
-    "fillsync,"
+    //"fillseq,"
+    //"fillsync,"
     "fillrandom,"
-    "overwrite,"
+    //"overwrite,"
     "readrandom,"
     "readrandom,"  // Extra run to allow previous compactions to quiesce
-    "readseq,"
-    "readreverse,"
-    "compact,"
+    //"readseq,"
+    //"readreverse,"
+    //"compact,"
     "readrandom,"
-    "readseq,"
-    "readreverse,"
-    "fill100K,"
-    "crc32c,"
-    "snappycomp,"
-    "snappyuncomp,";
+    //"readseq,"
+    //"readreverse,"
+    //"fill100K,"
+    //"crc32c,"
+    //"snappycomp,"
+    //"snappyuncomp,"
+    ;
 
 // Number of key/values to place in database
-static int FLAGS_num = 1000000;
+static int FLAGS_num = 2000000;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static int FLAGS_reads = -1;
@@ -818,6 +819,8 @@ class Benchmark {
       }
     }
     thread->stats.AddBytes(bytes);
+    //输出log大小
+    //____
   }
 
   void ReadSequential(ThreadState* thread) {
@@ -1034,7 +1037,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--compression_ratio=%lf%c", &d, &junk) == 1) {
       FLAGS_compression_ratio = d;
     } else if (sscanf(argv[i], "--histogram=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
+               (n == 0 || n == 1)) {//输出操作的时间直方图
       FLAGS_histogram = n;
     } else if (sscanf(argv[i], "--comparisons=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {

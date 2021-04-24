@@ -23,16 +23,19 @@ namespace leveldb {
 // parameters set via options.
 namespace config {
 static const int kNumLevels = 7;
+static const int kNumMemLevels = 3;
 
+static const int Kmaxgroup = 8;
+static const double Priority_L0_Compaction = 1.5;
 // Level-0 compaction is started when we hit this many files.
 static const int kL0_CompactionTrigger = 4;
 
 // Soft limit on number of level-0 files.  We slow down writes at this point.
 static const int kL0_SlowdownWritesTrigger = 8;
-
+static const int kMemL0_SlowdownWritesTrigger = 8;
 // Maximum number of level-0 files.  We stop writes at this point.
 static const int kL0_StopWritesTrigger = 12;
-
+static const int kMemL0_StopWritesTrigger = 12;
 // Maximum level to which a new compacted memtable is pushed if it
 // does not create overlap.  We try to push to level 2 to avoid the
 // relatively expensive level 0=>1 compactions and to avoid some

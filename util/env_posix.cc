@@ -660,8 +660,8 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  void Schedule(void (*background_work_function)(void* background_work_arg),
-                void* background_work_arg) override;
+  void Schedule(void (*background_work_function)(void* background_work_arg,bool is_mem),
+                void* background_work_arg,bool is_mem) override;
 
   void StartThread(void (*thread_main)(void* thread_main_arg),
                    void* thread_main_arg) override {
@@ -718,7 +718,13 @@ class PosixEnv : public Env {
 
  private:
   void BackgroundThreadMain();
+  void BackgroundThreadMainMem();
 
+  //start mem background thread
+  static void BackgroundThreadEntryPointMem(PosixEnv* env) {
+    env->BackgroundThreadMainMem();
+  }
+  //start disk beckground thread
   static void BackgroundThreadEntryPoint(PosixEnv* env) {
     env->BackgroundThreadMain();
   }
@@ -730,19 +736,23 @@ class PosixEnv : public Env {
   //
   // This structure is thread-safe beacuse it is immutable.
   struct BackgroundWorkItem {
-    explicit BackgroundWorkItem(void (*function)(void* arg), void* arg)
+    explicit BackgroundWorkItem(void (*function)(void* arg,bool is_mem), void* arg)
         : function(function), arg(arg) {}
-
-    void (*const function)(void*);
+    void (*const function)(void*,bool);
     void* const arg;
   };
 
-  port::Mutex background_work_mutex_;
-  port::CondVar background_work_cv_ GUARDED_BY(background_work_mutex_);
-  bool started_background_thread_ GUARDED_BY(background_work_mutex_);
+  std::pair<port::Mutex, port::Mutex> background_work_mutex_;//mutex in mem and disk
+  port::CondVar background_work_cv_ GUARDED_BY(background_work_mutex_.second);
+  port::CondVar  background_work_cv_mem_ GUARDED_BY(background_work_mutex_.first);
+  bool started_background_thread_ GUARDED_BY(background_work_mutex_.second);//whether started thread
+  bool started_background_thread_mem_ GUARDED_BY(background_work_mutex_.first);
 
   std::queue<BackgroundWorkItem> background_work_queue_
       GUARDED_BY(background_work_mutex_);
+  std::queue<BackgroundWorkItem> background_work_queue_mem_
+      GUARDED_BY(background_work_mutex_);
+
 
   PosixLockTable locks_;  // Thread-safe.
   Limiter mmap_limiter_;  // Thread-safe.
@@ -773,50 +783,80 @@ int MaxOpenFiles() {
 }  // namespace
 
 PosixEnv::PosixEnv()
-    : background_work_cv_(&background_work_mutex_),
+    : background_work_cv_mem_(&background_work_mutex_.first),
+      background_work_cv_(&background_work_mutex_.second),
       started_background_thread_(false),
+      started_background_thread_mem_(false),
       mmap_limiter_(MaxMmaps()),
       fd_limiter_(MaxOpenFiles()) {}
 
 void PosixEnv::Schedule(
-    void (*background_work_function)(void* background_work_arg),
-    void* background_work_arg) {
-  background_work_mutex_.Lock();
+    void (*background_work_function)(void* background_work_arg,bool is_mem),
+    void* background_work_arg,bool is_mem) {
+  
+  if (is_mem) {//if insert to mem queue
+    background_work_mutex_.first.Lock();
 
-  // Start the background thread, if we haven't done so already.
-  if (!started_background_thread_) {
-    started_background_thread_ = true;
+    if(!started_background_thread_mem_){
+      started_background_thread_mem_= true;
+      std::thread background_thread_mem(PosixEnv::BackgroundThreadEntryPointMem, this);
+      background_thread_mem.detach();
+    }
+    if (background_work_queue_mem_.empty()) {
+      background_work_cv_mem_.Signal();
+    }
+    background_work_queue_mem_.emplace(background_work_function, background_work_arg);
+    background_work_mutex_.first.Unlock();
+  }
+  else{//if insert to disk queue
+    background_work_mutex_.second.Lock();
+
+    if(!started_background_thread_){
+    started_background_thread_= true;
     std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
     background_thread.detach();
+    }
+    if (background_work_queue_.empty()) {
+      background_work_cv_.Signal();
+    }
+    background_work_queue_.emplace(background_work_function, background_work_arg);
+    background_work_mutex_.second.Unlock();
   }
-
-  // If the queue is empty, the background thread may be waiting for work.
-  if (background_work_queue_.empty()) {
-    background_work_cv_.Signal();
-  }
-
-  background_work_queue_.emplace(background_work_function, background_work_arg);
-  background_work_mutex_.Unlock();
 }
 
-void PosixEnv::BackgroundThreadMain() {
+void PosixEnv::BackgroundThreadMain() {//thread disk
   while (true) {
-    background_work_mutex_.Lock();
+    background_work_mutex_.second.Lock();
 
     // Wait until there is work to be done.
-    while (background_work_queue_.empty()) {
+    while (background_work_queue_.empty()) {//队列为空则等待
       background_work_cv_.Wait();
     }
-
     assert(!background_work_queue_.empty());
-    auto background_work_function = background_work_queue_.front().function;
+    auto background_work_function = background_work_queue_.front().function;//get work
     void* background_work_arg = background_work_queue_.front().arg;
     background_work_queue_.pop();
-
-    background_work_mutex_.Unlock();
-    background_work_function(background_work_arg);
+    background_work_mutex_.second.Unlock();
+    background_work_function(background_work_arg,false);
   }
 }
+
+void PosixEnv::BackgroundThreadMainMem() {//thread mem
+  while (true) {
+    background_work_mutex_.first.Lock();
+    while (background_work_queue_mem_.empty()) {
+      background_work_cv_mem_.Wait();
+    }
+
+    assert(!background_work_queue_mem_.empty());
+    auto background_work_function = background_work_queue_mem_.front().function;//get work
+    void* background_work_arg = background_work_queue_mem_.front().arg;
+    background_work_queue_mem_.pop();
+    background_work_mutex_.first.Unlock();
+    background_work_function(background_work_arg,true);
+  }
+}
+
 
 namespace {
 

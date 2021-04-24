@@ -33,8 +33,17 @@
 
 #include "util/arena.h"
 #include "util/random.h"
+#include "util/coding.h"
 
 namespace leveldb {
+
+static Slice GetLengthPrefixedSlice(const char* data) {
+  uint32_t len;
+  const char* p = data;
+  p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
+  return Slice(p, len);
+}
+
 
 class Arena;
 
@@ -58,6 +67,10 @@ class SkipList {
 
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const Key& key) const;
+
+  //max and min
+  Key GetMaxKey();
+  Key GetMinKey();
 
   // Iteration over the contents of a skip list
   class Iterator {
@@ -279,6 +292,20 @@ SkipList<Key, Comparator>::FindGreaterOrEqual(const Key& key,
     }
   }
 }
+
+//min
+template <typename Key, class Comparator>
+Key SkipList<Key, Comparator>::GetMinKey(){
+  Node* x=head_->Next(0);
+  return x->key;
+}
+//max
+template <typename Key, class Comparator>
+Key SkipList<Key, Comparator>::GetMaxKey(){
+  Node* x=FindLast();
+  return x->key;
+}
+
 
 template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node*

@@ -109,10 +109,31 @@ class Version {
   int PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                  const Slice& largest_user_key);
 
+  int PickGroupForMemTableOutput(const Slice& smallest_user_key,
+                                        const Slice& largest_user_key); //add 函数  to  do
+
+  bool OverlapInLevel2(int level, const Slice* smallest_user_key,
+                             const Slice* largest_user_key,int group,std::vector<std::vector<FileMetaData*> > logicalgroupL0 ); //add 函数声明。
+  
+
+
+
   int NumFiles(int level) const { return files_[level].size(); }
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString() const;
+
+  //返回最大组数
+
+int Max_Group(){
+      int max_group_number = 0;
+    for(int i = 0;i < files_[0].size();i++){
+      if(files_[0][i]->group_number >= max_group_number)
+      max_group_number = files_[0][i]->group_number ; 
+  }
+  return max_group_number;
+  }
+
 
  private:
   friend class Compaction;
@@ -233,6 +254,11 @@ class VersionSet {
   // describes the compaction.  Caller should delete the result.
   Compaction* PickCompaction();
 
+
+  Compaction* PickCompactionlevel0(Compaction *c);
+  //void PickCompactionlevel0(Compaction *c);
+
+  Compaction* PickCompaction3();  
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
   // level that overlaps the specified range.  Caller should delete

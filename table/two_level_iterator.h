@@ -6,6 +6,7 @@
 #define STORAGE_LEVELDB_TABLE_TWO_LEVEL_ITERATOR_H_
 
 #include "leveldb/iterator.h"
+#include "db/memtable.h"
 
 namespace leveldb {
 
@@ -26,6 +27,8 @@ Iterator* NewTwoLevelIterator(
                                 const Slice& index_value),
     void* arg, const ReadOptions& options);
 
+//two level iter for memtable
+Iterator* NewMemTwoLevelIterator(Iterator* index_iter);
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_TABLE_TWO_LEVEL_ITERATOR_H_

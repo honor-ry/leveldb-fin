@@ -12,7 +12,6 @@
 // varstring :=
 //    len: varint32
 //    data: uint8[len]
-
 #include "leveldb/write_batch.h"
 
 #include "db/dbformat.h"
@@ -25,6 +24,9 @@ namespace leveldb {
 
 // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
 static const size_t kHeader = 12;
+
+//log size
+static volatile LogMetaInfo log_meta_info;
 
 WriteBatch::WriteBatch() { Clear(); }
 
@@ -57,6 +59,10 @@ Status WriteBatch::Iterate(Handler* handler) const {
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
           handler->Put(key, value);
+          //record size info
+          log_meta_info.log_put_number++;
+          log_meta_info.log_put_size+=input.size()+8;
+          
         } else {
           return Status::Corruption("bad WriteBatch Put");
         }
@@ -64,6 +70,9 @@ Status WriteBatch::Iterate(Handler* handler) const {
       case kTypeDeletion:
         if (GetLengthPrefixedSlice(&input, &key)) {
           handler->Delete(key);
+          //record size info
+          log_meta_info.log_delete_number++;
+          log_meta_info.log_delete_size+=input.size()+8;
         } else {
           return Status::Corruption("bad WriteBatch Delete");
         }
@@ -145,6 +154,15 @@ void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   SetCount(dst, Count(dst) + Count(src));
   assert(src->rep_.size() >= kHeader);
   dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
+}
+
+LogMetaInfo WriteBatchInternal::GetLogMetaInfo(){
+  LogMetaInfo log_info;
+  log_info.log_put_number=log_meta_info.log_put_number;
+  log_info.log_put_size=log_meta_info.log_put_size;
+  log_info.log_delete_number=log_meta_info.log_delete_number;
+  log_info.log_delete_size=log_meta_info.log_delete_size;
+  return log_info;
 }
 
 }  // namespace leveldb

@@ -11,12 +11,6 @@
 
 namespace leveldb {
 
-static Slice GetLengthPrefixedSlice(const char* data) {
-  uint32_t len;
-  const char* p = data;
-  p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
-  return Slice(p, len);
-}
 
 MemTable::MemTable(const InternalKeyComparator& comparator)
     : comparator_(comparator), refs_(0), table_(comparator_, &arena_) {}
@@ -96,6 +90,36 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   std::memcpy(p, value.data(), val_size);
   assert(p + val_size == buf + encoded_len);
   table_.Insert(buf);
+}
+
+//compact add
+void MemTable::CompactAdd(const Slice& internal_key,const Slice& value){
+    size_t internal_key_size = internal_key.size();
+    size_t val_size = value.size();
+
+    const size_t encoded_len = VarintLength(internal_key_size) +
+                               internal_key_size + VarintLength(val_size) +
+                               val_size;
+    char* buf = arena_.Allocate(encoded_len);
+    char* p = EncodeVarint32(buf, internal_key_size);
+    std::memcpy(p, internal_key.data(), internal_key_size);
+    p += internal_key_size;
+    p = EncodeVarint32(p, val_size);
+    std::memcpy(p, value.data(), val_size);
+    assert(p + val_size == buf + encoded_len);
+    //add to skiplist
+    table_.Insert(buf);
+}
+
+
+//max and min internalkey
+Slice MemTable::GetLargestInternal(){
+  const char* s = table_.GetMaxKey();
+  return GetLengthPrefixedSlice(s);
+}
+Slice MemTable::GetSmallestInternal(){
+  const char* s = table_.GetMinKey();
+  return GetLengthPrefixedSlice(s);
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {

@@ -11,10 +11,19 @@
 namespace leveldb {
 
 class MemTable;
-
+struct LogMetaInfo{
+  size_t log_put_number;
+  size_t log_delete_number;
+  size_t log_put_size;
+  size_t log_delete_size;
+  LogMetaInfo()
+      : log_put_number(0), log_delete_number(0), log_put_size(0), log_delete_size(0) {}
+};
 // WriteBatchInternal provides static methods for manipulating a
 // WriteBatch that we don't want in the public WriteBatch interface.
 class WriteBatchInternal {
+
+
  public:
   // Return the number of entries in the batch.
   static int Count(const WriteBatch* batch);
@@ -38,6 +47,8 @@ class WriteBatchInternal {
   static Status InsertInto(const WriteBatch* batch, MemTable* memtable);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);
+
+  static LogMetaInfo GetLogMetaInfo();
 };
 
 }  // namespace leveldb

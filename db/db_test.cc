@@ -2332,7 +2332,7 @@ static void BM_LogAndApply(benchmark::State& state) {
   for (int i = 0; i < num_base_files; i++) {
     InternalKey start(MakeKey(2 * fnum), 1, kTypeValue);
     InternalKey limit(MakeKey(2 * fnum + 1), 1, kTypeDeletion);
-    vbase.AddFile(2, fnum++, 1 /* file size */, start, limit);
+    vbase.AddFile(2,0, fnum++, 1 /* file size */, start, limit);
   }
   ASSERT_LEVELDB_OK(vset.LogAndApply(&vbase, &mu));
 
@@ -2343,7 +2343,7 @@ static void BM_LogAndApply(benchmark::State& state) {
     vedit.RemoveFile(2, fnum);
     InternalKey start(MakeKey(2 * fnum), 1, kTypeValue);
     InternalKey limit(MakeKey(2 * fnum + 1), 1, kTypeDeletion);
-    vedit.AddFile(2, fnum++, 1 /* file size */, start, limit);
+    vedit.AddFile(2,0, fnum++, 1 /* file size */, start, limit);
     vset.LogAndApply(&vedit, &mu);
   }
   uint64_t stop_micros = env->NowMicros();
